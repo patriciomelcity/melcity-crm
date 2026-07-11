@@ -177,6 +177,42 @@ def backup_resumen(service):
     print(f"  resumen: {len(contactos)} contactos, {len(actividades)} actividades")
 
 
+# ── LIMPIEZA DE HOJAS VIEJAS (retención 30 días) ─────────────────────────────
+def cleanup_old_sheets(service, retention_days: int = 30):
+    """Elimina hojas de contactos_ y actividades_ con más de retention_days días."""
+    spreadsheet = service.get(spreadsheetId=SPREADSHEET_ID).execute()
+    sheets = spreadsheet["sheets"]
+    cutoff = datetime.date.today() - datetime.timedelta(days=retention_days)
+    to_delete = []
+
+    for sheet in sheets:
+        title = sheet["properties"]["title"]
+        sheet_id = sheet["properties"]["sheetId"]
+        # Solo borramos hojas con prefijo contactos_ o actividades_ + fecha YYYY-MM-DD
+        for prefix in ("contactos_", "actividades_"):
+            if title.startswith(prefix):
+                date_str = title[len(prefix):]
+                try:
+                    sheet_date = datetime.date.fromisoformat(date_str)
+                    if sheet_date < cutoff:
+                        to_delete.append((title, sheet_id))
+                except ValueError:
+                    pass  # título con formato distinto, ignorar
+
+    if not to_delete:
+        print(f"  limpieza: no hay hojas con más de {retention_days} días")
+        return
+
+    requests_body = [{"deleteSheet": {"sheetId": sid}} for _, sid in to_delete]
+    service.batchUpdate(
+        spreadsheetId=SPREADSHEET_ID,
+        body={"requests": requests_body},
+    ).execute()
+    for title, _ in to_delete:
+        print(f"  limpieza: eliminada hoja '{title}'")
+    print(f"  limpieza: {len(to_delete)} hoja(s) eliminada(s)")
+
+
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 def main():
     print(f"Backup Melcity CRM · {TODAY}")
@@ -187,6 +223,8 @@ def main():
     backup_actividades(service)
     print("Resumen...")
     backup_resumen(service)
+    print("Limpiando hojas con más de 30 días...")
+    cleanup_old_sheets(service, retention_days=30)
     print("Backup completado.")
 
 if __name__ == "__main__":
